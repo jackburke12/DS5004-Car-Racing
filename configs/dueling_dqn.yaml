@@ -1,0 +1,30 @@
+# configs/dueling_dqn.yaml
+agent_name: dueling_dqn
+
+env:
+  id: CarRacing-v3
+  render_mode: null
+  num_stack: 3      # Dueling Double DQN uses 3 stacked frames
+
+training:
+  episodes: 1500
+  max_steps_per_episode: 1000
+  warmup_steps: 5000
+  train_every: 1
+  updates_per_step: 1
+  target_update_every: 500
+
+hyperparameters:
+  gamma: 0.99
+  lr: 0.0001
+  batch_size: 32
+  replay_size: 150000
+
+exploration:
+  eps_start: 1.0
+  eps_end: 0.05
+  eps_decay_steps: 500000
+
+output:
+  checkpoint_dir: checkpoints/dueling_dqn
+  results_csv: results/dueling_dqn_results.csv
