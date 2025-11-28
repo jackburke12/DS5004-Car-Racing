@@ -28,6 +28,7 @@ from utils.action_mapping import ACTIONS
 from agents.dqn_agent import DQNAgent
 from agents.double_dqn_agent import DoubleDQNAgent
 from agents.dueling_dqn_agent import DuelingDQNAgent
+from agents.ddpg_agent import DDPGAgent
 
 
 # --------------------------------------------------------------------------
@@ -37,6 +38,7 @@ AGENT_REGISTRY = {
     "dqn": DQNAgent,
     "double_dqn": DoubleDQNAgent,
     "dueling_dqn": DuelingDQNAgent,
+    "ddpg": DDPGAgent
 }
 
 
@@ -112,8 +114,13 @@ def train(config_path):
 
         for step in range(max_steps):
             # Select action
-            action_idx = agent.select_action(state)
-            cont_action = ACTIONS[action_idx]
+            if agent_name == "ddpg":
+                # DDPG already outputs continuous env action [steer, gas, brake]
+                cont_action = agent.select_action(state)
+            else:
+                action_idx = agent.select_action(state)
+                cont_action = ACTIONS[action_idx]
+
 
             # Step environment
             next_obs, reward, terminated, truncated, info = env.step(cont_action)
@@ -122,7 +129,11 @@ def train(config_path):
             next_state = fs.append(next_obs)
 
             # Store transition
-            agent.store_transition(state, action_idx, reward, next_state, done)
+            if agent_name == "ddpg":
+              agent.store_transition(state, cont_action, reward, next_state, done)
+            else:
+              agent.store_transition(state, action_idx, reward, next_state, done)
+
 
             state = next_state
             ep_reward += reward
