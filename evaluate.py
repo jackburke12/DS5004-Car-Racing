@@ -29,6 +29,7 @@ AGENT_REGISTRY = {
     "dqn": DQNAgent,
     "double_dqn": DoubleDQNAgent,
     "dueling_dqn": DuelingDQNAgent,
+    "ddpg": DDPGAgent
 }
 
 
@@ -92,8 +93,11 @@ def evaluate(config_path, checkpoint_path, episodes=5, render=True):
 
         while not done and steps < max_steps:
             # Greedy action selection
-            action_idx = agent.select_action(state, eval_mode=True)
-            cont_action = ACTIONS[action_idx]
+            if agent_name == "ddpg":
+                agent.store_transition(state, cont_action, reward, next_state, done)
+            else:
+                agent.store_transition(state, action_idx, reward, next_state, done)
+
 
             # Step environment
             next_obs, reward, terminated, truncated, _ = env.step(cont_action)
