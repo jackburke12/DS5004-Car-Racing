@@ -220,3 +220,40 @@ class TD3Agent:
             self._soft_update(self.critic2, self.critic2_target)
 
         return float(critic_loss.item())
+
+    # ----------------------------------------------------------------------
+    # Save / Load (compatible with train.py / evaluate.py)
+    # ----------------------------------------------------------------------
+    def save(self, path):
+        ckpt = {
+            "actor": self.actor.state_dict(),
+            "critic1": self.critic1.state_dict(),
+            "critic2": self.critic2.state_dict(),
+            "actor_target": self.actor_target.state_dict(),
+            "critic1_target": self.critic1_target.state_dict(),
+            "critic2_target": self.critic2_target.state_dict(),
+            "actor_opt": self.actor_opt.state_dict(),
+            "critic1_opt": self.critic1_opt.state_dict(),
+            "critic2_opt": self.critic2_opt.state_dict(),
+            "total_steps": self.total_steps,
+            "_update_step": self._update_step,
+        }
+        torch.save(ckpt, path)
+
+    def load(self, path):
+        ckpt = torch.load(path, map_location=self.device)
+
+        self.actor.load_state_dict(ckpt["actor"])
+        self.critic1.load_state_dict(ckpt["critic1"])
+        self.critic2.load_state_dict(ckpt["critic2"])
+
+        self.actor_target.load_state_dict(ckpt["actor_target"])
+        self.critic1_target.load_state_dict(ckpt["critic1_target"])
+        self.critic2_target.load_state_dict(ckpt["critic2_target"])
+
+        self.actor_opt.load_state_dict(ckpt["actor_opt"])
+        self.critic1_opt.load_state_dict(ckpt["critic1_opt"])
+        self.critic2_opt.load_state_dict(ckpt["critic2_opt"])
+
+        self.total_steps = ckpt.get("total_steps", 0)
+        self._update_step = ckpt.get("_update_step", 0)

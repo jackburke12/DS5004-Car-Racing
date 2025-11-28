@@ -180,3 +180,29 @@ class DDPGAgent:
 
         # Return critic loss for logging if desired
         return float(critic_loss.item())
+
+    # ----------------------------------------------------------------------
+    # Save / Load
+    # ----------------------------------------------------------------------
+    def save(self, path):
+        ckpt = {
+            "actor": self.actor.state_dict(),
+            "critic": self.critic.state_dict(),
+            "actor_target": self.actor_target.state_dict(),
+            "critic_target": self.critic_target.state_dict(),
+            "actor_opt": self.actor_opt.state_dict(),
+            "critic_opt": self.critic_opt.state_dict(),
+            "total_steps": self.total_steps,
+        }
+        torch.save(ckpt, path)
+
+    def load(self, path):
+        ckpt = torch.load(path, map_location=self.device)
+        self.actor.load_state_dict(ckpt["actor"])
+        self.critic.load_state_dict(ckpt["critic"])
+        self.actor_target.load_state_dict(ckpt["actor_target"])
+        self.critic_target.load_state_dict(ckpt["critic_target"])
+        self.actor_opt.load_state_dict(ckpt["actor_opt"])
+        self.critic_opt.load_state_dict(ckpt["critic_opt"])
+
+        self.total_steps = ckpt.get("total_steps", 0)
