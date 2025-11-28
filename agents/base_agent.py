@@ -62,6 +62,7 @@ class BaseAgent:
         self.eps_end = eps_end
         self.eps_decay_steps = eps_decay_steps
         self.lr = lr
+        self.is_continuous = False
 
         # Exploration tracking
         self.total_steps = 0

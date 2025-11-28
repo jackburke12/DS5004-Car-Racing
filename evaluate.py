@@ -20,6 +20,8 @@ from utils.action_mapping import ACTIONS
 from agents.dqn_agent import DQNAgent
 from agents.double_dqn_agent import DoubleDQNAgent
 from agents.dueling_dqn_agent import DuelingDQNAgent
+from agents.ddpg_agent import DDPGAgent
+from agents.td3_agent import TD3Agent
 
 
 # ------------------------------------------------------------------------
@@ -29,7 +31,8 @@ AGENT_REGISTRY = {
     "dqn": DQNAgent,
     "double_dqn": DoubleDQNAgent,
     "dueling_dqn": DuelingDQNAgent,
-    "ddpg": DDPGAgent
+    "ddpg": DDPGAgent,
+    "td3": TD3Agent
 }
 
 
@@ -70,6 +73,8 @@ def evaluate(config_path, checkpoint_path, episodes=5, render=True):
         img_w=84,
     )
 
+    is_continuous = getattr(agent, "is_continuous", False)
+
     # Load weights
     print(f"Loading checkpoint: {checkpoint_path}")
     agent.load(checkpoint_path)
@@ -92,12 +97,13 @@ def evaluate(config_path, checkpoint_path, episodes=5, render=True):
         steps = 0
 
         while not done and steps < max_steps:
+            
             # Greedy action selection
-            if agent_name == "ddpg":
-                agent.store_transition(state, cont_action, reward, next_state, done)
+            if is_continuous:
+                cont_action = agent.select_action(state, eval_mode=True)
             else:
-                agent.store_transition(state, action_idx, reward, next_state, done)
-
+                action_idx = agent.select_action(state, eval_mode=True)
+                cont_action = ACTIONS[action_idx]
 
             # Step environment
             next_obs, reward, terminated, truncated, _ = env.step(cont_action)

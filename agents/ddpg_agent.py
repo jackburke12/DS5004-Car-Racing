@@ -46,6 +46,7 @@ class DDPGAgent:
 
         self.action_dim = 3
         self.max_action = 1.0
+        self.is_continuous = True
 
         # Actor & Critic + targets
         self.actor = DDPGActor(in_channels=in_channels, img_h=img_h, img_w=img_w,
