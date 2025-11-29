@@ -7,11 +7,12 @@ Uses:
 - ReplayBuffer (utils/replay_buffer.py)
 
 Public API matches other agents enough to plug into train.py:
-    - select_action(state, eval_mode=False)
-    - store_transition(...)
+    - select_action(state, eval_mode=False) -> env action [steer, gas, brake]
+    - store_transition(state, action, reward, next_state, done)
     - update()
     - hard_update_target()
-    - attributes: batch_size, replay, total_steps, eps
+    - save(path), load(path)
+    - attributes: batch_size, replay, total_steps, eps, is_continuous
 """
 
 import numpy as np
@@ -30,9 +31,9 @@ class DDPGAgent:
         batch_size=64,
         gamma=0.99,
         lr=1e-4,
-        eps_start=1.0,       # unused, present for compatibility
-        eps_end=0.05,        # unused
-        eps_decay_steps=500000,  # unused
+        eps_start=1.0,          # unused, present for compatibility
+        eps_end=0.05,           # unused
+        eps_decay_steps=500000, # unused
         in_channels=4,
         img_h=84,
         img_w=84,
@@ -46,17 +47,36 @@ class DDPGAgent:
 
         self.action_dim = 3
         self.max_action = 1.0
-        self.is_continuous = True
+        self.is_continuous = True  # used by train/evaluate to branch action handling
 
         # Actor & Critic + targets
-        self.actor = DDPGActor(in_channels=in_channels, img_h=img_h, img_w=img_w,
-                               action_dim=self.action_dim).to(self.device)
-        self.actor_target = DDPGActor(in_channels=in_channels, img_h=img_h, img_w=img_w,
-                                      action_dim=self.action_dim).to(self.device)
-        self.critic = DDPGCritic(in_channels=in_channels, img_h=img_h, img_w=img_w,
-                                 action_dim=self.action_dim).to(self.device)
-        self.critic_target = DDPGCritic(in_channels=in_channels, img_h=img_h, img_w=img_w,
-                                        action_dim=self.action_dim).to(self.device)
+        self.actor = DDPGActor(
+            in_channels=in_channels,
+            img_h=img_h,
+            img_w=img_w,
+            action_dim=self.action_dim,
+        ).to(self.device)
+
+        self.actor_target = DDPGActor(
+            in_channels=in_channels,
+            img_h=img_h,
+            img_w=img_w,
+            action_dim=self.action_dim,
+        ).to(self.device)
+
+        self.critic = DDPGCritic(
+            in_channels=in_channels,
+            img_h=img_h,
+            img_w=img_w,
+            action_dim=self.action_dim,
+        ).to(self.device)
+
+        self.critic_target = DDPGCritic(
+            in_channels=in_channels,
+            img_h=img_h,
+            img_w=img_w,
+            action_dim=self.action_dim,
+        ).to(self.device)
 
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
@@ -93,45 +113,74 @@ class DDPGAgent:
     def select_action(self, state, eval_mode=False):
         """
         Args:
-            state: np.ndarray (C, H, W)
+            state: np.ndarray (C, H, W) — already preprocessed/stacked frames
 
         Returns:
-            continuous action np.ndarray (3,) in env space:
+            env_action: np.ndarray(3,) in CarRacing action space:
                 steer ∈ [-1, 1]
                 gas   ∈ [0, 1]
                 brake ∈ [0, 1]
+
+        NOTE:
+            - Internally, the actor operates in a "raw" action space a_raw ∈ [-1,1]^3.
+            - We add exploration noise in raw space.
+            - We map to env space only for env.step().
+            - For training, we store *raw* actions (reconstructed in store_transition).
         """
         self.actor.eval()
         with torch.no_grad():
             s_t = torch.tensor(state[None, :], dtype=torch.float32, device=self.device)
-            action = self.actor(s_t).cpu().numpy()[0]  # in [-1, 1]
+            action_raw = self.actor(s_t).cpu().numpy()[0]  # in [-1, 1]
         self.actor.train()
 
         if not eval_mode:
             std = self._current_noise_std()
-            noise = np.random.normal(0.0, std, size=action.shape)
-            action = action + noise
-            action = np.clip(action, -1.0, 1.0)
+            noise = np.random.normal(0.0, std, size=action_raw.shape)
+            action_raw = action_raw + noise
+            action_raw = np.clip(action_raw, -1.0, 1.0)
+            self.total_steps += 1  # count only during training
 
-        # Map to CarRacing action space:
+        # Map raw action -> CarRacing env space:
         #   steer: [-1,1] -> [-1,1]
         #   gas:   [-1,1] -> [0,1]
         #   brake: [-1,1] -> [0,1]
-        steer = float(action[0])
-        gas = float((action[1] + 1.0) / 2.0)
-        brake = float((action[2] + 1.0) / 2.0)
+        steer = float(action_raw[0])
+        gas = float((action_raw[1] + 1.0) / 2.0)
+        brake = float((action_raw[2] + 1.0) / 2.0)
 
         gas = np.clip(gas, 0.0, 1.0)
         brake = np.clip(brake, 0.0, 1.0)
 
-        return np.array([steer, gas, brake], dtype=np.float32)
+        env_action = np.array([steer, gas, brake], dtype=np.float32)
+        return env_action
 
     def store_transition(self, state, action, reward, next_state, done):
-        # action is continuous np.array([3,])
-        self.replay.push(state, action, reward, next_state, done)
+        """
+        Store a transition.
+
+        Args:
+            state:      np.ndarray (C,H,W)
+            action:     np.ndarray(3,) in *env* space [steer ∈ [-1,1], gas/brake ∈ [0,1]]
+            reward:     float
+            next_state: np.ndarray (C,H,W)
+            done:       bool
+
+        Internally, we convert env-action back to the actor's raw space in [-1,1]^3
+        so that the critic sees a consistent action distribution.
+        """
+        # Convert env action back to raw actor space:
+        # steer_raw = steer (already [-1,1])
+        # gas_raw   = gas * 2 - 1   (maps [0,1] -> [-1,1])
+        # brake_raw = brake * 2 - 1
+        steer_env, gas_env, brake_env = float(action[0]), float(action[1]), float(action[2])
+        gas_raw = gas_env * 2.0 - 1.0
+        brake_raw = brake_env * 2.0 - 1.0
+        action_raw = np.array([steer_env, gas_raw, brake_raw], dtype=np.float32)
+
+        self.replay.push(state, action_raw, reward, next_state, done)
 
     def hard_update_target(self):
-        """Not really needed for DDPG, but used by train.py; we'll just hard copy."""
+        """For compatibility with train.py; we also do soft updates each step."""
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
 
@@ -146,15 +195,14 @@ class DDPGAgent:
 
         states_t = torch.tensor(states, dtype=torch.float32, device=self.device)
         next_states_t = torch.tensor(next_states, dtype=torch.float32, device=self.device)
-        actions_t = torch.tensor(actions, dtype=torch.float32, device=self.device)  # (B, 3)
+        actions_t = torch.tensor(actions, dtype=torch.float32, device=self.device)  # (B, 3) in [-1,1]
         rewards_t = torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1)
         dones_t = torch.tensor(dones.astype(np.uint8), dtype=torch.float32, device=self.device).unsqueeze(1)
 
         # ---------------- Critic update ----------------
         with torch.no_grad():
-            next_actions = self.actor_target(next_states_t)            # [-1,1]
-            # map to same range as critic expects (we keep critic in [-1,1] range)
-            target_q = self.critic_target(next_states_t, next_actions)
+            next_actions_raw = self.actor_target(next_states_t)  # [-1,1]^3
+            target_q = self.critic_target(next_states_t, next_actions_raw)
             target_y = rewards_t + (1.0 - dones_t) * self.gamma * target_q
 
         current_q = self.critic(states_t, actions_t)
@@ -166,8 +214,8 @@ class DDPGAgent:
         self.critic_opt.step()
 
         # ---------------- Actor update ----------------
-        pred_actions = self.actor(states_t)
-        actor_loss = -self.critic(states_t, pred_actions).mean()
+        pred_actions_raw = self.actor(states_t)
+        actor_loss = -self.critic(states_t, pred_actions_raw).mean()
 
         self.actor_opt.zero_grad()
         actor_loss.backward()
@@ -178,7 +226,6 @@ class DDPGAgent:
         self._soft_update(self.actor, self.actor_target)
         self._soft_update(self.critic, self.critic_target)
 
-        # Return critic loss for logging if desired
         return float(critic_loss.item())
 
     # ----------------------------------------------------------------------

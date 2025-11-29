@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  rl-env:
+    container_name: rl_training_env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: colab-rl-env:latest
+    
+
+    # --------- Mount your local project folder into the container ---------
+    volumes:
+      - ./:/workspace
+
+    # --------- Keep container running, provide interactive shell ----------
+    stdin_open: true      # equivalent to -i
+    tty: true             # equivalent to -t
+
+    # --------- Restart only if manually started -----------
+    restart: "no"
+
+    # --------- Default command (same as Dockerfile) ---------
+    command: bash

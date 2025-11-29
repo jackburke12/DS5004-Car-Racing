@@ -4,24 +4,37 @@ agent_name: ddpg
 env:
   id: CarRacing-v3
   render_mode: null
-  num_stack: 4      # DDPG uses 4 stacked frames
+
+  # DDPG tends to be less stable than TD3, so we keep 4 frames.
+  num_stack: 4
 
 training:
+  # DDPG generally needs more time to converge than TD3.
   episodes: 800
-  max_steps_per_episode: 1000
-  warmup_steps: 5000
-  train_every: 1
+  max_steps_per_episode: 800        # Match TD3 optimization
+
+  warmup_steps: 3000                # Reduced to match TD3 speedup
+  train_every: 2                    # Slightly slower updates (TD3 also uses 2)
   updates_per_step: 1
-  target_update_every: 1000    # train.py still calls hard_update_target; DDPG also does soft updates internally
+
+  # Train.py still uses occasional hard updates;
+  # DDPG also does soft updates internally.
+  target_update_every: 1000
 
 hyperparameters:
   gamma: 0.99
-  lr: 0.0001
-  batch_size: 64
-  replay_size: 150000
+
+  # Match TD3 learning rate for more stable critics
+  lr: 0.0003
+
+  # Match TD3 training batch size
+  batch_size: 128
+
+  # Same replay size for fair comparison + faster CPU training
+  replay_size: 30000
 
 exploration:
-  # Not used by DDPGAgent, but kept for compatibility with constructor
+  # Not actually used by DDPGAgent, but required for constructor signature
   eps_start: 1.0
   eps_end: 0.05
   eps_decay_steps: 500000
