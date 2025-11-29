@@ -4,24 +4,40 @@ agent_name: td3
 env:
   id: CarRacing-v3
   render_mode: null
-  num_stack: 4      # same as DQN/DDPG for fair-ish comparison
+
+  # Speed optimization:
+  # Reduce frame stack from 4 -> 3 (large CNN speed gain)
+  num_stack: 3
 
 training:
-  episodes: 800
-  max_steps_per_episode: 1000
-  warmup_steps: 5000
-  train_every: 1
+  # TD3 typically converges by ~400–600 episodes.
+  episodes: 600
+  max_steps_per_episode: 800       # Lowering this reduces env runtime ~20%
+
+  warmup_steps: 3000               # TD3 learns faster, needs less warmup
+  train_every: 2                   # Update every 2 env steps instead of every step
   updates_per_step: 1
-  target_update_every: 1000  # train.py still calls hard_update_target()
+
+  # Hard updates still done by train.py every N steps
+  target_update_every: 1000
+
+  # TD3-only: delayed policy update (big speed boost)
+  policy_freq: 3
 
 hyperparameters:
   gamma: 0.99
-  lr: 0.0001
-  batch_size: 64
-  replay_size: 150000
+
+  # TD3 traditionally uses lower learning rates (1e-3 can destabilize critics)
+  lr: 0.0003
+
+  # Speed optimization: larger batch size
+  batch_size: 128
+
+  # Reduce memory + increase training speed
+  replay_size: 30000
 
 exploration:
-  # Not used directly by TD3Agent, but kept for constructor compatibility
+  # Unused for TD3, but kept for BaseAgent compatibility
   eps_start: 1.0
   eps_end: 0.05
   eps_decay_steps: 500000
