@@ -69,3 +69,13 @@ class DDPGCritic(nn.Module):
         feat = self.critic_features(x)    # critic learns visual features
         x_cat = torch.cat([feat, action], dim=1)
         return self.q_net(x_cat)
+    
+    
+    def forward_actor(self, x, action):
+        """
+        Used only for actor update.
+        Detaches critic CNN features to prevent interference.
+        """
+        feat = self.critic_features(x).detach()
+        x_cat = torch.cat([feat, action], dim=1)
+        return self.q_net(x_cat)

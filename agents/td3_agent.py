@@ -209,7 +209,7 @@ class TD3Agent:
             pred_action_raw = self.actor(states_t)
 
             # VERY important: detach Q to avoid interfering with critic CNN learning
-            q_for_actor = self.critic1(states_t, pred_action_raw).detach()
+            q_for_actor = self.critic1.forward_actor(states_t, pred_action_raw)
             actor_loss = -q_for_actor.mean()
 
             self.actor_opt.zero_grad()
