@@ -149,6 +149,13 @@ class TD3Agent:
         action_raw = np.array([steer_env, gas_raw, brake_raw], dtype=np.float32)
         self.replay.push(state, action_raw, reward, next_state, done)
 
+    def hard_update_target(self):
+        """Hard copy online → target networks (used by train.py)."""
+        self.actor_target.load_state_dict(self.actor.state_dict())
+        self.critic1_target.load_state_dict(self.critic1.state_dict())
+        self.critic2_target.load_state_dict(self.critic2.state_dict())
+
+
     # ---------------------------------------------------------------------- #
     # TD3 Update
     # ---------------------------------------------------------------------- #
