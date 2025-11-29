@@ -1,13 +1,15 @@
 # agents/td3_agent.py
 """
-TD3 Agent for CarRacing-v3
+Stable TD3 Agent for CarRacing-v3 (pixel observations)
 
-Fixes / Features:
-    - Soft updates ONLY (no hard target copies)
-    - Correct raw-action ↔ env-action conversions
-    - Proper target policy smoothing
-    - Increased exploration noise (0.6 → 0.1)
-    - Slower actor update (policy_freq = 4)
+Improvements included:
+    - Separate actor/critic CNN encoders (from DDPGActor/DDPGCritic)
+    - Actor uses stop-gradient features (in DDPGActor)
+    - TD3 soft target updates only
+    - Critic target Q-values detached safely
+    - Actor loss uses a detached critic output (prevents instability)
+    - Actor/critic mode switching for extra LayerNorm safety
+    - Correct action scaling between raw & env action space
 """
 
 import numpy as np
@@ -35,7 +37,7 @@ class TD3Agent:
         device=None,
         policy_noise=0.2,
         noise_clip=0.5,
-        policy_freq=4,       # slower actor updates for image-based TD3
+        policy_freq=4,   # better for image-based TD3
         tau=0.005,
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -48,20 +50,22 @@ class TD3Agent:
         self.max_action = 1.0
         self.is_continuous = True
 
-        # TD3 uses ONLY soft updates (train.py checks this)
+        # TD3 uses only soft updates (train.py checks this flag)
         self.uses_soft_update = True
 
-        # Actor & Targets
+        # ----------------------------
+        # Networks
+        # ----------------------------
         self.actor = DDPGActor(in_channels, img_h, img_w, self.action_dim).to(self.device)
         self.actor_target = DDPGActor(in_channels, img_h, img_w, self.action_dim).to(self.device)
 
-        # Critics
         self.critic1 = DDPGCritic(in_channels, img_h, img_w, self.action_dim).to(self.device)
         self.critic2 = DDPGCritic(in_channels, img_h, img_w, self.action_dim).to(self.device)
+
         self.critic1_target = DDPGCritic(in_channels, img_h, img_w, self.action_dim).to(self.device)
         self.critic2_target = DDPGCritic(in_channels, img_h, img_w, self.action_dim).to(self.device)
 
-        # Copy weights
+        # Copy initial weights
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic1_target.load_state_dict(self.critic1.state_dict())
         self.critic2_target.load_state_dict(self.critic2.state_dict())
@@ -71,13 +75,13 @@ class TD3Agent:
         self.critic1_opt = torch.optim.Adam(self.critic1.parameters(), lr=lr)
         self.critic2_opt = torch.optim.Adam(self.critic2.parameters(), lr=lr)
 
-        # TD3 params
+        # TD3 hyperparameters
         self.policy_noise = policy_noise
         self.noise_clip = noise_clip
         self.policy_freq = policy_freq
         self.tau = tau
 
-        # Exploration noise schedule
+        # Noise schedule for exploration
         self.noise_std_start = 0.6
         self.noise_std_end = 0.1
         self.noise_decay_steps = 500_000
@@ -86,19 +90,24 @@ class TD3Agent:
         self._update_step = 0
         self.eps = 0.0
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     def _current_noise_std(self):
         frac = min(1.0, self.total_steps / self.noise_decay_steps)
         return self.noise_std_start + frac * (self.noise_std_end - self.noise_std_start)
 
+    # --------------------------------------------------------------
     def _soft_update(self, online, target):
         for p, tp in zip(online.parameters(), target.parameters()):
             tp.data.copy_(self.tau * p.data + (1 - self.tau) * tp.data)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     # ACTION SELECTION (raw → env)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     def select_action(self, state, eval_mode=False):
+        """
+        state: np.ndarray (C,H,W) already normalized
+        returns: env action [steer, gas, brake]
+        """
         self.actor.eval()
         with torch.no_grad():
             s = torch.tensor(state[None, :], dtype=torch.float32, device=self.device)
@@ -111,29 +120,34 @@ class TD3Agent:
             action_raw = np.clip(action_raw + noise, -1.0, 1.0)
             self.total_steps += 1
 
-        # Convert to env action space
+        # Convert raw action → env action
         steer = float(action_raw[0])
-        gas = float((action_raw[1] + 1) / 2)
-        brake = float((action_raw[2] + 1) / 2)
+        gas = float((action_raw[1] + 1.0) / 2.0)
+        brake = float((action_raw[2] + 1.0) / 2.0)
 
         gas = np.clip(gas, 0.0, 1.0)
         brake = np.clip(brake, 0.0, 1.0)
 
         return np.array([steer, gas, brake], dtype=np.float32)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     # STORE TRANSITION (env → raw)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     def store_transition(self, state, action, reward, next_state, done):
+        """
+        action is env action: [steer, gas, brake]
+        convert gas/brake back to raw [-1,1] range
+        """
         steer, gas, brake = float(action[0]), float(action[1]), float(action[2])
-        gas_raw = gas * 2 - 1
-        brake_raw = brake * 2 - 1
+        gas_raw = gas * 2.0 - 1.0
+        brake_raw = brake * 2.0 - 1.0
         action_raw = np.array([steer, gas_raw, brake_raw], dtype=np.float32)
+
         self.replay.push(state, action_raw, reward, next_state, done)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     # TD3 UPDATE
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     def update(self):
         if len(self.replay) < self.batch_size:
             return
@@ -153,20 +167,23 @@ class TD3Agent:
         # --------------------------------------------------------------
         with torch.no_grad():
             next_action_raw = self.actor_target(next_states_t)
+
             noise = torch.normal(0.0, self.policy_noise, next_action_raw.shape, device=self.device)
             noise = torch.clamp(noise, -self.noise_clip, self.noise_clip)
 
             next_action_raw = torch.clamp(next_action_raw + noise, -1.0, 1.0)
 
-            target_q1 = self.critic1_target(next_states_t, next_action_raw)
-            target_q2 = self.critic2_target(next_states_t, next_action_raw)
+            target_q1 = self.critic1_target(next_states_t, next_action_raw).detach()
+            target_q2 = self.critic2_target(next_states_t, next_action_raw).detach()
             target_q = torch.min(target_q1, target_q2)
 
-            target_y = rewards_t + (1 - dones_t) * self.gamma * target_q
+            target_y = rewards_t + (1.0 - dones_t) * self.gamma * target_q
 
         # --------------------------------------------------------------
         # CRITIC UPDATES
         # --------------------------------------------------------------
+        self.actor.eval()  # just for LayerNorm safety
+
         current_q1 = self.critic1(states_t, actions_t)
         current_q2 = self.critic2(states_t, actions_t)
 
@@ -182,24 +199,30 @@ class TD3Agent:
         self.critic1_opt.step()
         self.critic2_opt.step()
 
+        self.actor.train()
+
         # --------------------------------------------------------------
         # DELAYED ACTOR UPDATE
         # --------------------------------------------------------------
         if self._update_step % self.policy_freq == 0:
+
             pred_action_raw = self.actor(states_t)
-            actor_loss = -self.critic1(states_t, pred_action_raw).mean()
+
+            # VERY important: detach Q to avoid interfering with critic CNN learning
+            q_for_actor = self.critic1(states_t, pred_action_raw).detach()
+            actor_loss = -q_for_actor.mean()
 
             self.actor_opt.zero_grad()
             actor_loss.backward()
             nn.utils.clip_grad_norm_(self.actor.parameters(), 10.0)
             self.actor_opt.step()
 
-            # Soft update
+            # Soft target updates
             self._soft_update(self.actor, self.actor_target)
             self._soft_update(self.critic1, self.critic1_target)
             self._soft_update(self.critic2, self.critic2_target)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     def save(self, path):
         ckpt = {
             "actor": self.actor.state_dict(),
@@ -212,7 +235,7 @@ class TD3Agent:
             "critic1_opt": self.critic1_opt.state_dict(),
             "critic2_opt": self.critic2_opt.state_dict(),
             "total_steps": self.total_steps,
-            "_update_step": self._update_step
+            "_update_step": self._update_step,
         }
         torch.save(ckpt, path)
 

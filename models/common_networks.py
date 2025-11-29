@@ -1,15 +1,10 @@
 # models/common_networks.py
 """
-Shared convolutional feature extractor for CarRacing-v3 agents.
+Stabilized convolutional feature extractor for TD3 / DDPG from pixels.
 
-Both DQN and Dueling DQN variants use the same CNN torso:
-    Conv2d -> ReLU -> Conv2d -> ReLU -> Conv2d -> ReLU
-
-This module provides CNNFeatureExtractor, which returns:
-    - forward(x): flattened feature vector
-    - output_dim: number of features after flattening
-
-Used inside DQN, Double DQN, and Dueling DQN network classes.
+Adds:
+    - LayerNorm after each conv layer (BatchNorm breaks actor-critic)
+    - Identical API to original CNNFeatureExtractor
 """
 
 import torch
@@ -18,39 +13,33 @@ import torch.nn as nn
 
 class CNNFeatureExtractor(nn.Module):
     def __init__(self, in_channels=4, img_h=84, img_w=84):
-        """
-        Args:
-            in_channels: number of stacked frames (3 or 4)
-            img_h, img_w: resolution of processed frames
-        """
         super().__init__()
 
-        # convolutional body (same as used in your scripts)
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
-            nn.ReLU(),
+        # Convolution layers + LayerNorm for stability
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
+        self.ln1 = nn.LayerNorm([32, 20, 20])
+        self.relu1 = nn.ReLU()
 
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
-            nn.ReLU(),
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        self.ln2 = nn.LayerNorm([64, 9, 9])
+        self.relu2 = nn.ReLU()
 
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU(),
-        )
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        self.ln3 = nn.LayerNorm([64, 7, 7])
+        self.relu3 = nn.ReLU()
 
-        # compute flattened output size dynamically
+        # Compute feature size dynamically
         with torch.no_grad():
             dummy = torch.zeros(1, in_channels, img_h, img_w)
-            conv_out = self.conv(dummy)
-            self.output_dim = conv_out.view(1, -1).shape[1]
+            x = self._forward_conv(dummy)
+            self.output_dim = x.view(1, -1).shape[1]
+
+    def _forward_conv(self, x):
+        x = self.relu1(self.ln1(self.conv1(x)))
+        x = self.relu2(self.ln2(self.conv2(x)))
+        x = self.relu3(self.ln3(self.conv3(x)))
+        return x
 
     def forward(self, x):
-        """
-        Args:
-            x: input tensor shape (B, C, H, W)
-
-        Returns:
-            flattened features shape (B, output_dim)
-        """
-        x = self.conv(x)
-        x = x.view(x.size(0), -1)
-        return x
+        x = self._forward_conv(x)
+        return x.view(x.size(0), -1)

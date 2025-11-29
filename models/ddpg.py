@@ -1,9 +1,11 @@
 # models/ddpg.py
 """
-DDPG networks for CarRacing-v3.
+DDPG / TD3 networks for CarRacing-v3 with stabilized CNN encoders.
 
-- DDPGActor:  CNN encoder -> MLP -> 3D action in [-1, 1]
-- DDPGCritic: CNN encoder + action -> MLP -> scalar Q(s, a)
+Fixes:
+    - Separate CNNs for actor & critic
+    - LayerNorm inside CNN (from CNNFeatureExtractor)
+    - Stop-gradient for actor CNN features (prevents destabilizing critic)
 """
 
 import torch
@@ -14,8 +16,10 @@ from models.common_networks import CNNFeatureExtractor
 class DDPGActor(nn.Module):
     def __init__(self, in_channels=4, img_h=84, img_w=84, action_dim=3):
         super().__init__()
-        self.features = CNNFeatureExtractor(in_channels=in_channels, img_h=img_h, img_w=img_w)
-        feat_dim = self.features.output_dim
+
+        # Actor has its own encoder
+        self.actor_features = CNNFeatureExtractor(in_channels, img_h, img_w)
+        feat_dim = self.actor_features.output_dim
 
         self.fc = nn.Sequential(
             nn.Linear(feat_dim, 512),
@@ -29,13 +33,13 @@ class DDPGActor(nn.Module):
 
     def forward(self, x):
         """
-        Args:
-            x: (B, C, H, W)
-
-        Returns:
-            actions in [-1, 1]^3, shape (B, 3)
+        x: (B, C, H, W) normalized image frames
+        returns: actions in [-1,1]
         """
-        feat = self.features(x)
+
+        # Very important: actor sees **stop-gradient** features
+        feat = self.actor_features(x).detach()
+
         a = self.fc(feat)
         return self.tanh(a)
 
@@ -43,10 +47,11 @@ class DDPGActor(nn.Module):
 class DDPGCritic(nn.Module):
     def __init__(self, in_channels=4, img_h=84, img_w=84, action_dim=3):
         super().__init__()
-        self.features = CNNFeatureExtractor(in_channels=in_channels, img_h=img_h, img_w=img_w)
-        feat_dim = self.features.output_dim
 
-        # Q-network over [features, action]
+        # Critic has its own encoder (no stop-grad)
+        self.critic_features = CNNFeatureExtractor(in_channels, img_h, img_w)
+        feat_dim = self.critic_features.output_dim
+
         self.q_net = nn.Sequential(
             nn.Linear(feat_dim + action_dim, 512),
             nn.ReLU(),
@@ -57,14 +62,10 @@ class DDPGCritic(nn.Module):
 
     def forward(self, x, action):
         """
-        Args:
-            x:      (B, C, H, W)
-            action: (B, 3) in [-1, 1]
-
-        Returns:
-            Q-value (B, 1)
+        x: (B,C,H,W)
+        action: (B,3)
+        returns: Q-value
         """
-        feat = self.features(x)
+        feat = self.critic_features(x)    # critic learns visual features
         x_cat = torch.cat([feat, action], dim=1)
-        q = self.q_net(x_cat)
-        return q
+        return self.q_net(x_cat)
