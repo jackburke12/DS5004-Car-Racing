@@ -2,28 +2,32 @@ agent_name: sac
 
 env:
   id: CarRacing-v3
+  render_mode: null
   num_stack: 3
 
 training:
-  episodes: 100
-  max_steps_per_episode: 300
-  warmup_steps: 2000
+  episodes: 1400
+  max_steps_per_episode: 1000
+  warmup_steps: 5000
   train_every: 1
-  updates_per_step: 1   # ok for debug
+  updates_per_step: 2
+  target_update_every: 1   # ignored for SAC, but required by trainer
 
 hyperparameters:
-  replay_size: 30000
-  batch_size: 32
   gamma: 0.99
-  lr: 0.0003
-  automatic_entropy_tuning: false
-  actor_lr: 0.0001
+  actor_lr: 0.00005
   critic_lr: 0.0003
+  batch_size: 128
+  replay_size: 50000  # If memory limited: keep 30000
   alpha: 0.01
+  automatic_entropy_tuning: false
+  tau: 0.002
 
-network:
-  cnn_channels: [32, 64, 64]
-  fc_sizes: [256, 128]
+exploration:
+  eps_start: 1.0
+  eps_end: 0.05
+  eps_decay_steps: 500000
 
 output:
-  checkpoint_dir: checkpoints/sac_debug
+  checkpoint_dir: checkpoints/sac
+  results_csv: results/sac_results.csv
