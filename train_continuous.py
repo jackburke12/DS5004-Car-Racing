@@ -64,25 +64,39 @@ def train(config_path):
     # Create environment
     env = gym.make(env_id, render_mode=render_mode)
     env.reset(seed=42)
+    # Determine learning rate depending on agent type
+    if "lr" in hp:
+        base_lr = hp["lr"]
+    else:
+        base_lr = None  # SAC does not use a shared LR
 
-    # Instantiate agent
     AgentClass = AGENT_REGISTRY[agent_name]
-    agent = AgentClass(
+
+    # Build kwargs common to all agents
+    agent_kwargs = dict(
         replay_size=hp["replay_size"],
         batch_size=hp["batch_size"],
         gamma=hp["gamma"],
-        lr=hp["lr"],
         eps_start=exp["eps_start"],
         eps_end=exp["eps_end"],
         eps_decay_steps=exp["eps_decay_steps"],
         in_channels=num_stack,
         img_h=84,
         img_w=84,
-        actor_lr = hp.get("actor_lr", hp["lr"]),
-        critic_lr = hp.get("critic_lr", hp["lr"]),
-        alpha = hp.get("alpha", 0.01),
-        automatic_entropy_tuning = hp.get("automatic_entropy_tuning", True),
     )
+
+    # Only non-SAC agents use a shared lr
+    if agent_name != "sac":
+        agent_kwargs["lr"] = hp["lr"]
+    else:
+        # SAC-specific LRs
+        agent_kwargs["actor_lr"] = hp["actor_lr"]
+        agent_kwargs["critic_lr"] = hp["critic_lr"]
+        agent_kwargs["alpha"] = hp.get("alpha", 0.01)
+        agent_kwargs["automatic_entropy_tuning"] = hp.get("automatic_entropy_tuning", True)
+
+    # Instantiate agent
+    agent = AgentClass(**agent_kwargs)
 
     is_continuous = getattr(agent, "is_continuous", False)
     agent_uses_soft_update = getattr(agent, "uses_soft_update", False)

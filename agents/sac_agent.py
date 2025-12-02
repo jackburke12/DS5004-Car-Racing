@@ -143,7 +143,9 @@ class SACAgent:
         tau=0.005,
         target_entropy=None,
         actor_lr = None,
-        critic_lr = None
+        critic_lr = None,
+        alpha = 0.01,
+        automatic_entropy_tuning = False
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
