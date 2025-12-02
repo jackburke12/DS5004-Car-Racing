@@ -61,6 +61,31 @@ def train(config_path):
     exp = cfg["exploration"]
     out = cfg["output"]
 
+    # --------------------------------------------------------------
+    # --- DRIVE INTEGRATION (only activates inside Colab)
+    # --------------------------------------------------------------
+    IN_COLAB = False
+    try:
+        import google.colab  # noqa
+        IN_COLAB = True
+    except:
+        pass
+
+    if IN_COLAB:
+        from google.colab import drive
+        drive.mount('/content/drive')
+
+        # Override output paths to live inside Drive
+        base_dir = "/content/drive/MyDrive/car_racing_output"
+        os.makedirs(base_dir, exist_ok=True)
+
+        out["checkpoint_dir"] = os.path.join(base_dir, "checkpoints")
+        out["results_csv"] = os.path.join(base_dir, f"{agent_name}_results.csv")
+
+        print("\n[Google Drive] Output redirected to:")
+        print(f"  Checkpoints → {out['checkpoint_dir']}")
+        print(f"  Results CSV → {out['results_csv']}\n")
+
     # Create environment
     env = gym.make(env_id, render_mode=render_mode)
     env.reset(seed=42)
@@ -113,11 +138,8 @@ def train(config_path):
 
         for step in range(max_steps):
 
-            # ----------------------------------------------------------
             # ACTION SELECTION
-            # ----------------------------------------------------------
             if is_continuous:
-                # Random warmup exploration
                 if global_step < warmup_steps:
                     steer = np.random.uniform(-1.0, 1.0)
                     gas   = np.random.uniform(0.0, 1.0)
@@ -132,14 +154,11 @@ def train(config_path):
                 cont_action = ACTIONS[action_idx]
                 action_for_store = action_idx
 
-            # ----------------------------------------------------------
             # ENV STEP
-            # ----------------------------------------------------------
             next_obs, reward, terminated, truncated, info = env.step(cont_action)
             done = terminated or truncated
             next_state = fs.append(next_obs)
 
-            # Store transition
             agent.store_transition(state, action_for_store, reward, next_state, done)
 
             state = next_state
@@ -147,23 +166,17 @@ def train(config_path):
             global_step += 1
             agent.total_steps = global_step
 
-            # ----------------------------------------------------------
-            # TRAINING UPDATES
-            # ----------------------------------------------------------
             if global_step > warmup_steps and global_step % train_every == 0:
                 for _ in range(updates_per_step):
                     agent.update()
 
-            # Hard target update ONLY for DQN-like agents
             if (global_step % target_update_every == 0) and (not agent_uses_soft_update):
                 agent.hard_update_target()
 
             if done:
                 break
 
-        # --------------------------------------------------------------
         # LOGGING
-        # --------------------------------------------------------------
         episode_rewards.append(ep_reward)
         avg50 = np.mean(episode_rewards[-50:])
         avg50_rewards.append(avg50)
@@ -189,6 +202,16 @@ def train(config_path):
     df.to_csv(out["results_csv"], index=False)
 
     print(f"\nTraining complete. Results saved to: {out['results_csv']}\n")
+
+    # --------------------------------------------------------------
+    # Optional auto-download at end (safe fallback)
+    # --------------------------------------------------------------
+    if IN_COLAB:
+        try:
+            from google.colab import files
+            files.download(out["results_csv"])
+        except:
+            pass
 
 
 if __name__ == "__main__":
