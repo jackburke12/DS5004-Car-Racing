@@ -1,0 +1,29 @@
+agent_name: sac
+
+env:
+  id: CarRacing-v3
+  render_mode: null      # or "human" for debugging
+  num_stack: 4
+
+training:
+  episodes: 800
+  max_steps_per_episode: 1000
+  warmup_steps: 10000        # random actions before SAC kicks in
+  train_every: 1
+  updates_per_step: 1
+  target_update_every: 1     # unused for SAC, but required by train.py
+
+hyperparameters:
+  replay_size: 30000
+  batch_size: 64
+  gamma: 0.99
+  lr: 0.0003
+
+exploration:
+  eps_start: 1.0
+  eps_end: 0.05
+  eps_decay_steps: 500000
+
+output:
+  checkpoint_dir: checkpoints/sac
+  results_csv: results/sac_training.csv

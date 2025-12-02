@@ -30,6 +30,7 @@ from agents.double_dqn_agent import DoubleDQNAgent
 from agents.dueling_dqn_agent import DuelingDQNAgent
 from agents.ddpg_agent import DDPGAgent
 from agents.td3_agent import TD3Agent
+from agents.sac_agent import SACAgent
 
 
 # --------------------------------------------------------------------------
@@ -40,7 +41,8 @@ AGENT_REGISTRY = {
     "double_dqn": DoubleDQNAgent,
     "dueling_dqn": DuelingDQNAgent,
     "ddpg": DDPGAgent,
-    "td3": TD3Agent
+    "td3": TD3Agent,
+    "sac": SACAgent
 }
 
 
