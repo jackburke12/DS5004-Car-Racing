@@ -8,25 +8,25 @@ env:
 training:
   episodes: 1400
   max_steps_per_episode: 1000
-  warmup_steps: 5000
+  warmup_steps: 3000
   train_every: 1
-  updates_per_step: 2
+  updates_per_step: 1
   target_update_every: 1   # ignored for SAC, but required by trainer
 
 hyperparameters:
   gamma: 0.99
-  actor_lr: 0.00005
+  actor_lr: 0.0003
   critic_lr: 0.0003
-  batch_size: 128
-  replay_size: 50000  # If memory limited: keep 30000
-  alpha: 0.001
+  batch_size: 64
+  replay_size: 30000  # If memory limited: keep 30000
+  alpha: 0.01
   automatic_entropy_tuning: false
   tau: 0.005
 
 exploration:
-  eps_start: 1.0
-  eps_end: 0.05
-  eps_decay_steps: 500000
+  eps_start: 0.0
+  eps_end: 0.0
+  eps_decay_steps: 1
 
 output:
   checkpoint_dir: "/content/drive/MyDrive/car_racing_output/checkpoints"
