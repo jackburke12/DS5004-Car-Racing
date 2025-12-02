@@ -29,5 +29,6 @@ exploration:
   eps_decay_steps: 500000
 
 output:
-  checkpoint_dir: checkpoints/sac
-  results_csv: results/sac_results.csv
+  checkpoint_dir: "/content/drive/MyDrive/car_racing_output/checkpoints"
+  results_csv: "/content/drive/MyDrive/car_racing_output/results.csv"
+

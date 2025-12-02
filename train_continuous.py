@@ -61,31 +61,6 @@ def train(config_path):
     exp = cfg["exploration"]
     out = cfg["output"]
 
-    # --------------------------------------------------------------
-    # --- DRIVE INTEGRATION (only activates inside Colab)
-    # --------------------------------------------------------------
-    IN_COLAB = False
-    try:
-        import google.colab  # noqa
-        IN_COLAB = True
-    except:
-        pass
-
-    if IN_COLAB:
-        from google.colab import drive
-        drive.mount('/content/drive')
-
-        # Override output paths to live inside Drive
-        base_dir = "/content/drive/MyDrive/car_racing_output"
-        os.makedirs(base_dir, exist_ok=True)
-
-        out["checkpoint_dir"] = os.path.join(base_dir, "checkpoints")
-        out["results_csv"] = os.path.join(base_dir, f"{agent_name}_results.csv")
-
-        print("\n[Google Drive] Output redirected to:")
-        print(f"  Checkpoints → {out['checkpoint_dir']}")
-        print(f"  Results CSV → {out['results_csv']}\n")
-
     # Create environment
     env = gym.make(env_id, render_mode=render_mode)
     env.reset(seed=42)
@@ -202,17 +177,6 @@ def train(config_path):
     df.to_csv(out["results_csv"], index=False)
 
     print(f"\nTraining complete. Results saved to: {out['results_csv']}\n")
-
-    # --------------------------------------------------------------
-    # Optional auto-download at end (safe fallback)
-    # --------------------------------------------------------------
-    if IN_COLAB:
-        try:
-            from google.colab import files
-            files.download(out["results_csv"])
-        except:
-            pass
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
