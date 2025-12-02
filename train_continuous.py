@@ -24,6 +24,7 @@ from agents.double_dqn_agent import DoubleDQNAgent
 from agents.dueling_dqn_agent import DuelingDQNAgent
 from agents.ddpg_agent import DDPGAgent
 from agents.td3_agent import TD3Agent
+from agents.sac_agent import SACAgent
 
 # --------------------------------------------------------------
 # Agent registry
@@ -34,6 +35,7 @@ AGENT_REGISTRY = {
     "dueling_dqn": DuelingDQNAgent,
     "ddpg": DDPGAgent,
     "td3": TD3Agent,
+    "sac": SACAgent
 }
 
 # --------------------------------------------------------------
@@ -76,6 +78,10 @@ def train(config_path):
         in_channels=num_stack,
         img_h=84,
         img_w=84,
+        actor_lr = hp.get("actor_lr", hp["lr"]),
+        critic_lr = hp.get("critic_lr", hp["lr"]),
+        alpha = hp.get("alpha", 0.01),
+        automatic_entropy_tuning = hp.get("automatic_entropy_tuning", True),
     )
 
     is_continuous = getattr(agent, "is_continuous", False)

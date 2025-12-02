@@ -16,8 +16,10 @@ hyperparameters:
   batch_size: 32
   gamma: 0.99
   lr: 0.0003
-  alpha: 0.2   # fixed alpha
   automatic_entropy_tuning: false
+  actor_lr: 0.0001
+  critic_lr: 0.0003
+  alpha: 0.01
 
 network:
   cnn_channels: [32, 64, 64]

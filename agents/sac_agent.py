@@ -142,6 +142,8 @@ class SACAgent:
         device=None,
         tau=0.005,
         target_entropy=None,
+        actor_lr = None,
+        critic_lr = None
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -168,6 +170,11 @@ class SACAgent:
 
         self.critic1_target.load_state_dict(self.critic1.state_dict())
         self.critic2_target.load_state_dict(self.critic2.state_dict())
+
+        if actor_lr is None:
+            actor_lr = lr
+        if critic_lr is None:
+            critic_lr = lr
 
         # Optimizers
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
