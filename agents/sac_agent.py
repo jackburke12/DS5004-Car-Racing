@@ -1,18 +1,12 @@
-# agents/sac_agent.py
 """
 Soft Actor-Critic (SAC) agent for CarRacing-v3 from pixels.
 
-Architecture:
-    - CNN encoder for actor and for each critic, using CNNFeatureExtractor
-    - Tanh-squashed Gaussian policy (stochastic)
-    - Twin Q-critics with target networks
-    - Automatic entropy temperature tuning (alpha)
-
-Conventions:
-    - Actor outputs raw actions in [-1, 1]^3
-    - Env expects [steer ∈ [-1,1], gas ∈ [0,1], brake ∈ [0,1]]
-      We map gas/brake from raw [-1,1] → [0,1] in select_action()
-    - Replay buffer stores *raw* actions in [-1,1]^3 (like TD3)
+Fixes included:
+    ✓ Correctly uses actor_lr and critic_lr
+    ✓ Proper support for automatic_entropy_tuning = True/False
+    ✓ Alpha is constant when tuning is disabled
+    ✓ Cleaned optimizer setup
+    ✓ No more lr=None issues
 """
 
 import numpy as np
@@ -30,7 +24,7 @@ LOG_STD_MAX = 2.0
 
 
 # -----------------------------------------------------------------------------
-# Networks
+# Actor
 # -----------------------------------------------------------------------------
 class SACActor(nn.Module):
     def __init__(self, in_channels=4, img_h=84, img_w=84, action_dim=3):
@@ -50,10 +44,6 @@ class SACActor(nn.Module):
         self.log_std_head = nn.Linear(256, action_dim)
 
     def forward(self, x):
-        """
-        Returns:
-            mean, log_std: tensors of shape (B, action_dim)
-        """
         feat = self.cnn(x)
         h = self.fc_body(feat)
 
@@ -62,17 +52,9 @@ class SACActor(nn.Module):
         log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
         return mean, log_std
 
-    def sample(self, x, deterministic: bool = False):
+    def sample(self, x, deterministic=False):
         """
-        Sample tanh-squashed Gaussian action and its log-prob.
-
-        Args:
-            x: (B,C,H,W)
-            deterministic: if True, use mean instead of sampling
-
-        Returns:
-            action: (B, action_dim) in [-1,1]
-            log_prob: (B,1)
+        Sample tanh-squashed Gaussian action + logprob.
         """
         mean, log_std = self.forward(x)
         std = log_std.exp()
@@ -81,23 +63,24 @@ class SACActor(nn.Module):
             z = mean
         else:
             normal = Normal(mean, std)
-            z = normal.rsample()  # reparameterization
+            z = normal.rsample()
 
         action = torch.tanh(z)
 
-        # Log prob with tanh correction
-        # log pi(a) = log pi(z) - sum log(1 - tanh(z)^2)
-        # Add small epsilon for numerical stability
+        # log-prob with correction
         log_prob = None
         if not deterministic:
             normal = Normal(mean, std)
-            log_prob = normal.log_prob(z)  # (B, action_dim)
+            log_prob = normal.log_prob(z)
             log_prob = log_prob - torch.log(1.0 - action.pow(2) + 1e-6)
-            log_prob = log_prob.sum(dim=1, keepdim=True)  # (B,1)
+            log_prob = log_prob.sum(dim=1, keepdim=True)
 
         return action, log_prob
 
 
+# -----------------------------------------------------------------------------
+# Critic
+# -----------------------------------------------------------------------------
 class SACCritic(nn.Module):
     def __init__(self, in_channels=4, img_h=84, img_w=84, action_dim=3):
         super().__init__()
@@ -114,10 +97,6 @@ class SACCritic(nn.Module):
         )
 
     def forward(self, x, action):
-        """
-        x: (B,C,H,W)
-        action: (B, action_dim)
-        """
         feat = self.cnn(x)
         x_cat = torch.cat([feat, action], dim=1)
         return self.q_net(x_cat)
@@ -132,21 +111,27 @@ class SACAgent:
         replay_size=150000,
         batch_size=64,
         gamma=0.99,
-        lr=3e-4,
-        eps_start=1.0,          # unused, but kept for train.py interface
-        eps_end=0.05,           # unused
-        eps_decay_steps=500000, # unused
+        lr=3e-4,                 # unused for SAC (kept for interface compatibility)
+        eps_start=1.0,
+        eps_end=0.05,
+        eps_decay_steps=500000,
         in_channels=4,
         img_h=84,
         img_w=84,
         device=None,
         tau=0.005,
         target_entropy=None,
-        actor_lr = None,
-        critic_lr = None,
-        alpha = 0.01,
-        automatic_entropy_tuning = False
+        actor_lr=None,
+        critic_lr=None,
+        alpha=0.01,
+        automatic_entropy_tuning=False,
     ):
+        """
+        Proper SAC setup:
+        - actor_lr and critic_lr MUST be used separately
+        - alpha is constant when tuning is disabled
+        """
+
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.gamma = gamma
@@ -157,12 +142,14 @@ class SACAgent:
         self.max_action = 1.0
 
         self.is_continuous = True
-        self.uses_soft_update = True  # like TD3, we only use soft updates
-        self.eps = 0.0  # for logging in train.py
+        self.uses_soft_update = True
+        self.eps = 0.0
 
-        # ----------------------------
+        self.tau = tau
+
+        # ----------------------------------
         # Networks
-        # ----------------------------
+        # ----------------------------------
         self.actor = SACActor(in_channels, img_h, img_w, self.action_dim).to(self.device)
         self.critic1 = SACCritic(in_channels, img_h, img_w, self.action_dim).to(self.device)
         self.critic2 = SACCritic(in_channels, img_h, img_w, self.action_dim).to(self.device)
@@ -173,79 +160,78 @@ class SACAgent:
         self.critic1_target.load_state_dict(self.critic1.state_dict())
         self.critic2_target.load_state_dict(self.critic2.state_dict())
 
+        # ----------------------------------
+        # Validate and assign LRs
+        # ----------------------------------
         if actor_lr is None:
-            actor_lr = lr
+            raise ValueError("actor_lr must be provided for SACAgent")
+
         if critic_lr is None:
-            critic_lr = lr
+            raise ValueError("critic_lr must be provided for SACAgent")
 
+        # ----------------------------------
         # Optimizers
-        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
-        self.critic1_opt = torch.optim.Adam(self.critic1.parameters(), lr=lr)
-        self.critic2_opt = torch.optim.Adam(self.critic2.parameters(), lr=lr)
+        # ----------------------------------
+        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic1_opt = torch.optim.Adam(self.critic1.parameters(), lr=critic_lr)
+        self.critic2_opt = torch.optim.Adam(self.critic2.parameters(), lr=critic_lr)
 
-        # ----------------------------
-        # Entropy temperature (alpha)
-        # ----------------------------
+        # ----------------------------------
+        # Alpha setup
+        # ----------------------------------
+        self.automatic_entropy_tuning = automatic_entropy_tuning
+
         if target_entropy is None:
-            # Standard heuristic: -dim(A)
             target_entropy = -float(self.action_dim)
         self.target_entropy = target_entropy
 
-        self.log_alpha = torch.zeros(1, device=self.device, requires_grad=True)
-        self.alpha_opt = torch.optim.Adam([self.log_alpha], lr=lr)
+        if self.automatic_entropy_tuning:
+            self.log_alpha = torch.zeros(1, device=self.device, requires_grad=True)
+            # Standard: use same LR as actor
+            self.alpha_opt = torch.optim.Adam([self.log_alpha], lr=actor_lr)
+        else:
+            # Fixed entropy temperature
+            self.log_alpha = torch.tensor(np.log(alpha), device=self.device)
+            self.log_alpha.requires_grad = False
+            self.alpha_opt = None
 
-        self.tau = tau
         self.total_steps = 0
 
-    # -------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------
     def _soft_update(self, online, target):
         for p, tp in zip(online.parameters(), target.parameters()):
             tp.data.copy_(self.tau * p.data + (1 - self.tau) * tp.data)
 
-    # -------------------------------------------------------------------------
-    # ACTION SELECTION (raw → env)
-    # -------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------
+    # Action selection
+    # -----------------------------------------------------------------------------
     def select_action(self, state, eval_mode=False):
-        """
-        state: np.ndarray (C,H,W) normalized
-        returns: env action [steer, gas, brake]
-        """
         self.actor.eval()
         with torch.no_grad():
             s = torch.tensor(state[None, :], dtype=torch.float32, device=self.device)
-            # deterministic during eval; stochastic during training
             action_raw, _ = self.actor.sample(s, deterministic=eval_mode)
             action_raw = action_raw.cpu().numpy()[0]
         self.actor.train()
 
-        # Map raw [-1,1] → env [steer, gas, brake]
+        # raw → env mapping
         steer = float(action_raw[0])
         gas = float((action_raw[1] + 1.0) / 2.0)
         brake = float((action_raw[2] + 1.0) / 2.0)
-
-        gas = np.clip(gas, 0.0, 1.0)
-        brake = np.clip(brake, 0.0, 1.0)
-
+        gas = np.clip(gas, 0, 1)
+        brake = np.clip(brake, 0, 1)
         return np.array([steer, gas, brake], dtype=np.float32)
 
-    # -------------------------------------------------------------------------
-    # STORE TRANSITION (env → raw)
-    # -------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------
     def store_transition(self, state, action, reward, next_state, done):
-        """
-        action is env action: [steer, gas, brake]
-        convert gas/brake back to raw [-1,1] range before storing
-        """
         steer, gas, brake = float(action[0]), float(action[1]), float(action[2])
         gas_raw = gas * 2.0 - 1.0
         brake_raw = brake * 2.0 - 1.0
         action_raw = np.array([steer, gas_raw, brake_raw], dtype=np.float32)
-
         self.replay.push(state, action_raw, reward, next_state, done)
 
-    # -------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------
     # SAC UPDATE
-    # -------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------
     def update(self):
         if len(self.replay) < self.batch_size:
             return
@@ -259,18 +245,18 @@ class SACAgent:
         dones_t = torch.tensor(dones.astype(np.uint8), dtype=torch.float32, device=self.device).unsqueeze(1)
 
         # ------------------------------
-        # Critic targets
+        # Target Q
         # ------------------------------
         with torch.no_grad():
-            next_action_raw, next_log_prob = self.actor.sample(next_states_t, deterministic=False)
+            next_action_raw, next_log_prob = self.actor.sample(next_states_t)
 
             q1_next = self.critic1_target(next_states_t, next_action_raw)
             q2_next = self.critic2_target(next_states_t, next_action_raw)
             q_next = torch.min(q1_next, q2_next)
 
             alpha = self.log_alpha.exp()
-            target_q = q_next - alpha * next_log_prob  # (B,1)
-            target_y = rewards_t + (1.0 - dones_t) * self.gamma * target_q
+            target_q = q_next - alpha * next_log_prob
+            target_y = rewards_t + (1 - dones_t) * self.gamma * target_q
 
         # ------------------------------
         # Critic losses
@@ -293,7 +279,7 @@ class SACAgent:
         # ------------------------------
         # Actor loss
         # ------------------------------
-        new_action_raw, log_prob = self.actor.sample(states_t, deterministic=False)
+        new_action_raw, log_prob = self.actor.sample(states_t)
         q1_pi = self.critic1(states_t, new_action_raw)
         q2_pi = self.critic2(states_t, new_action_raw)
         q_pi = torch.min(q1_pi, q2_pi)
@@ -307,23 +293,30 @@ class SACAgent:
         self.actor_opt.step()
 
         # ------------------------------
-        # Temperature (alpha) update
+        # Alpha update (only if tuning)
         # ------------------------------
-        alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+        if self.automatic_entropy_tuning:
+            alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+            self.alpha_opt.zero_grad()
+            alpha_loss.backward()
+            self.alpha_opt.step()
 
-        self.alpha_opt.zero_grad()
-        alpha_loss.backward()
-        self.alpha_opt.step()
-
-        # ------------------------------
-        # Soft target updates
-        # ------------------------------
+        # Soft updates
         self._soft_update(self.critic1, self.critic1_target)
         self._soft_update(self.critic2, self.critic2_target)
 
-    # -------------------------------------------------------------------------
-    # Checkpointing (compatible with TD3 style)
-    # -------------------------------------------------------------------------
+        # Occasional logging
+        if np.random.rand() < 0.001:
+            print(
+                f"[SAC] step={self.total_steps} | "
+                f"critic_loss={critic_loss.item():.3f} | "
+                f"actor_loss={actor_loss.item():.3f} | "
+                f"alpha={alpha.item():.3f}"
+            )
+
+    # -----------------------------------------------------------------------------
+    # Save + Load
+    # -----------------------------------------------------------------------------
     def save(self, path):
         ckpt = {
             "actor": self.actor.state_dict(),
@@ -335,7 +328,7 @@ class SACAgent:
             "critic1_opt": self.critic1_opt.state_dict(),
             "critic2_opt": self.critic2_opt.state_dict(),
             "log_alpha": self.log_alpha.detach().cpu(),
-            "alpha_opt": self.alpha_opt.state_dict(),
+            "alpha_opt": self.alpha_opt.state_dict() if self.alpha_opt else None,
             "total_steps": self.total_steps,
         }
         torch.save(ckpt, path)
@@ -351,10 +344,11 @@ class SACAgent:
         self.critic1_opt.load_state_dict(ckpt["critic1_opt"])
         self.critic2_opt.load_state_dict(ckpt["critic2_opt"])
 
-        if "log_alpha" in ckpt:
+        if ckpt.get("log_alpha") is not None:
             self.log_alpha = ckpt["log_alpha"].to(self.device)
-            self.log_alpha.requires_grad_(True)
-        if "alpha_opt" in ckpt:
+            self.log_alpha.requires_grad_(self.automatic_entropy_tuning)
+
+        if self.alpha_opt and ckpt.get("alpha_opt") is not None:
             self.alpha_opt.load_state_dict(ckpt["alpha_opt"])
 
         self.total_steps = ckpt.get("total_steps", 0)

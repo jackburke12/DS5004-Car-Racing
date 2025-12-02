@@ -65,10 +65,6 @@ def train(config_path):
     env = gym.make(env_id, render_mode=render_mode)
     env.reset(seed=42)
     # Determine learning rate depending on agent type
-    if "lr" in hp:
-        base_lr = hp["lr"]
-    else:
-        base_lr = None  # SAC does not use a shared LR
 
     AgentClass = AGENT_REGISTRY[agent_name]
 
@@ -85,15 +81,13 @@ def train(config_path):
         img_w=84,
     )
 
-    # Only non-SAC agents use a shared lr
-    if agent_name != "sac":
-        agent_kwargs["lr"] = hp["lr"]
-    else:
-        # SAC-specific LRs
+    if agent_name == "sac":
         agent_kwargs["actor_lr"] = hp["actor_lr"]
         agent_kwargs["critic_lr"] = hp["critic_lr"]
-        agent_kwargs["alpha"] = hp.get("alpha", 0.01)
-        agent_kwargs["automatic_entropy_tuning"] = hp.get("automatic_entropy_tuning", True)
+        agent_kwargs["alpha"] = hp["alpha"]
+        agent_kwargs["automatic_entropy_tuning"] = hp["automatic_entropy_tuning"]
+    else:
+        agent_kwargs["lr"] = hp["lr"]  # for TD3/DDPG/DQN
 
     # Instantiate agent
     agent = AgentClass(**agent_kwargs)
@@ -178,7 +172,7 @@ def train(config_path):
         )
 
         # Save checkpoint
-        if ep % 50 == 0:
+        if ep % 100 == 0:
             ckpt_path = os.path.join(out["checkpoint_dir"], f"{agent_name}_ep{ep}.pth")
             agent.save(ckpt_path)
             print(f"Checkpoint saved: {ckpt_path}")
