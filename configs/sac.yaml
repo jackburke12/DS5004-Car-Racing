@@ -3,23 +3,24 @@ agent_name: sac
 env:
   id: CarRacing-v3
   render_mode: null
-  num_stack: 3
+  num_stack: 4
+  frame_skip: 4  # NEW: Repeat each action 4 times
 
 training:
   episodes: 1400
-  max_steps_per_episode: 1000
-  warmup_steps: 3000
-  train_every: 1
+  max_steps_per_episode: 250  # CHANGED: Was 1000, now 250 because 250*4=1000 frames
+  warmup_steps: 2500  # CHANGED: Was 10000, now 2500 because 2500*4=10000 frames
+  train_every: 1  # CHANGED: Can train more frequently now
   updates_per_step: 1
-  target_update_every: 1   # ignored for SAC, but required by trainer
+  target_update_every: 1
 
 hyperparameters:
   gamma: 0.99
   actor_lr: 0.0003
   critic_lr: 0.0003
   batch_size: 64
-  replay_size: 30000  # If memory limited: keep 30000
-  alpha: 0.01
+  replay_size: 50000  # Same - still stores 50k transitions
+  alpha: 0.1  # INCREASED: More exploration with faster training
   automatic_entropy_tuning: false
   tau: 0.005
 
@@ -31,4 +32,3 @@ exploration:
 output:
   checkpoint_dir: "/content/drive/MyDrive/car_racing_output/checkpoints"
   results_csv: "/content/drive/MyDrive/car_racing_output/results.csv"
-

@@ -2,10 +2,7 @@
 """
 Unified training script for CarRacing RL agents.
 
-Adds:
-    - Random warmup for continuous agents (DDPG/TD3)
-    - TD3 uses ONLY soft target updates (no hard copy)
-    - Clean agent registry and safe action handling
+FIXED: Better reward shaping that encourages actual progress, not just survival.
 """
 
 import argparse
@@ -39,6 +36,31 @@ AGENT_REGISTRY = {
 }
 
 # --------------------------------------------------------------
+# BETTER reward shaping for CarRacing
+# --------------------------------------------------------------
+def shape_reward(reward, done, step_count, info=None):
+    """
+    Key insight: Don't reward survival, reward PROGRESS.
+    
+    CarRacing gives positive rewards for visiting new track tiles.
+    We should amplify positive rewards and heavily penalize crashes.
+    """
+    shaped_reward = reward
+    
+    # Amplify positive rewards (driving on new tiles)
+    if reward > 0:
+        shaped_reward = reward * 2.0  # Make progress more rewarding
+    
+    # Heavy penalty for early termination (crash/off-track)
+    if done and step_count < 200:
+        shaped_reward -= 100
+    
+    # NO survival bonus - this was the mistake!
+    # The agent should only get rewarded for actual progress
+    
+    return shaped_reward
+
+# --------------------------------------------------------------
 # Training function
 # --------------------------------------------------------------
 def train(config_path):
@@ -63,8 +85,15 @@ def train(config_path):
 
     # Create environment
     env = gym.make(env_id, render_mode=render_mode)
+    
+    # Apply frame skip wrapper if specified
+    frame_skip = cfg["env"].get("frame_skip", 0)
+    if frame_skip > 0:
+        from utils.frame_skip_wrapper import FrameSkipWrapper
+        env = FrameSkipWrapper(env, skip=frame_skip)
+        print(f"Frame skip enabled: {frame_skip}x")
+    
     env.reset(seed=42)
-    # Determine learning rate depending on agent type
 
     AgentClass = AGENT_REGISTRY[agent_name]
 
@@ -86,8 +115,10 @@ def train(config_path):
         agent_kwargs["critic_lr"] = hp["critic_lr"]
         agent_kwargs["alpha"] = hp["alpha"]
         agent_kwargs["automatic_entropy_tuning"] = hp["automatic_entropy_tuning"]
+        if "target_entropy" in hp:
+            agent_kwargs["target_entropy"] = hp["target_entropy"]
     else:
-        agent_kwargs["lr"] = hp["lr"]  # for TD3/DDPG/DQN
+        agent_kwargs["lr"] = hp["lr"]
 
     # Instantiate agent
     agent = AgentClass(**agent_kwargs)
@@ -103,11 +134,13 @@ def train(config_path):
     os.makedirs(os.path.dirname(out["results_csv"]), exist_ok=True)
 
     episode_rewards = []
+    episode_raw_rewards = []
     avg50_rewards = []
     global_step = 0
 
     print(f"\n===== TRAINING {agent_name.upper()} =====")
     print(f"Episodes: {episodes}")
+    print(f"Reward Shaping: Progress-based (v2)")
     print(f"Output directory: {out['checkpoint_dir']}")
     print("========================================\n")
 
@@ -118,6 +151,7 @@ def train(config_path):
         obs, info = env.reset()
         state = fs.reset(obs)
         ep_reward = 0.0
+        ep_raw_reward = 0.0
 
         for step in range(max_steps):
 
@@ -142,10 +176,14 @@ def train(config_path):
             done = terminated or truncated
             next_state = fs.append(next_obs)
 
-            agent.store_transition(state, action_for_store, reward, next_state, done)
+            # REWARD SHAPING
+            ep_raw_reward += reward
+            shaped_reward = shape_reward(reward, done, step, info)
+
+            agent.store_transition(state, action_for_store, shaped_reward, next_state, done)
 
             state = next_state
-            ep_reward += reward
+            ep_reward += shaped_reward
             global_step += 1
             agent.total_steps = global_step
 
@@ -161,14 +199,19 @@ def train(config_path):
 
         # LOGGING
         episode_rewards.append(ep_reward)
+        episode_raw_rewards.append(ep_raw_reward)
         avg50 = np.mean(episode_rewards[-50:])
+        avg50_raw = np.mean(episode_raw_rewards[-50:])
         avg50_rewards.append(avg50)
 
         print(
             f"Episode {ep:4d} | "
-            f"Reward: {ep_reward:7.1f} | "
+            f"Shaped: {ep_reward:7.1f} | "
+            f"Raw: {ep_raw_reward:7.1f} | "
             f"Avg50: {avg50:7.2f} | "
-            f"Eps: {agent.eps:.3f}"
+            f"RawAvg50: {avg50_raw:7.2f} | "
+            f"Steps: {step:4d} | "
+            f"Alpha: {agent.log_alpha.exp().item():.3f}"
         )
 
         # Save checkpoint
@@ -180,6 +223,7 @@ def train(config_path):
     # Save results
     df = pd.DataFrame({
         "EpisodeReward": episode_rewards,
+        "RawReward": episode_raw_rewards,
         "Avg50Reward": avg50_rewards,
     })
     df.to_csv(out["results_csv"], index=False)
