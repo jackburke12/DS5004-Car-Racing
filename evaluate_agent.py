@@ -46,8 +46,8 @@ def evaluate_agent(checkpoint_path, num_episodes=10, render=True, record=False, 
     # Apply frame skip (must match training!)
     env = FrameSkipWrapper(env, skip=4)
     
-    # Create frame stack
-    fs = FrameStack(num_stack=4)
+    # Create frame stack (k=4 frames, 84x84 images)
+    fs = FrameStack(k=4, img_h=84, img_w=84)
     
     # Initialize agent (same config as training)
     agent = SACAgent(
@@ -95,7 +95,7 @@ def evaluate_agent(checkpoint_path, num_episodes=10, render=True, record=False, 
             episode_reward += reward
             steps += 1
             
-            if steps >= 250:  # Max steps with frame_skip=4
+            if steps >= 1000:  # Max steps with frame_skip=4
                 break
         
         episode_rewards.append(episode_reward)
