@@ -3,17 +3,10 @@
 Plot training results for CarRacing RL agents.
 
 Usage:
-    python plot_results.py --files results/dqn_results.csv \
-                                   results/double_dqn_results.csv \
-                                   results/dueling_dqn_results.csv
-
-Plots:
-    - Episode reward curves
-    - Rolling average (default window=50)
+    python plot_results.py --files results/sac_results.csv
 
 Outputs:
-    - figures/reward_curves.png
-    - figures/rolling_average.png
+    - figures/combined_rewards.png
 """
 
 import argparse
@@ -24,59 +17,48 @@ import os
 
 
 # -------------------------------------------------------------------
-# Plot episode reward for each model
+# Plot both episode reward + rolling average in ONE figure
 # -------------------------------------------------------------------
-def plot_episode_rewards(csv_paths, save_dir="figures"):
+def plot_combined(csv_paths, window=50, save_dir="figures"):
     os.makedirs(save_dir, exist_ok=True)
 
-    plt.figure(figsize=(12, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(18, 6))  # 2 subplots side-by-side
+    ax1, ax2 = axes
 
+    # ---------------- Left subplot: raw rewards ----------------
     for csv in csv_paths:
         df = pd.read_csv(csv)
-        label = Path(csv).stem.replace("_results", "")
-        plt.plot(df["EpisodeReward"], label=label, linewidth=1.5)
+        ax1.plot(df["RawReward"], label="Soft Actor-Critic", linewidth=1.5)
 
-    plt.title("Episode Reward per Episode")
-    plt.xlabel("Episode")
-    plt.ylabel("Reward")
-    plt.legend()
-    plt.grid(alpha=0.3)
+    ax1.set_title("Episode Rewards in Continuous Action Space")
+    ax1.set_xlabel("Episode")
+    ax1.set_ylabel("Reward")
+    ax1.grid(alpha=0.3)
+    ax1.legend()
 
-    out_path = os.path.join(save_dir, "reward_curves.png")
+    # ---------------- Right subplot: rolling average ----------------
+    for csv in csv_paths:
+        df = pd.read_csv(csv)
+        roll = df["RawReward"].rolling(window).mean()
+        ax2.plot(roll, label="Soft Actor-Critic", linewidth=2)
+
+    ax2.set_title(f"Average Reward Over {window} Episodes")
+    ax2.set_xlabel("Episode")
+    ax2.set_ylabel("Avg Reward")
+    ax2.grid(alpha=0.3)
+    ax2.legend()
+
+    # Tight layout so titles don’t overlap
+    plt.tight_layout()
+
+    out_path = os.path.join(save_dir, "combined_rewards.png")
     plt.savefig(out_path, dpi=200)
     plt.close()
     print(f"Saved: {out_path}")
 
 
 # -------------------------------------------------------------------
-# Plot rolling average reward (default window=50)
-# -------------------------------------------------------------------
-def plot_rolling_average(csv_paths, window=50, save_dir="figures"):
-    os.makedirs(save_dir, exist_ok=True)
-
-    plt.figure(figsize=(12, 6))
-
-    for csv in csv_paths:
-        df = pd.read_csv(csv)
-        label = Path(csv).stem.replace("_results", "")
-
-        roll = df["EpisodeReward"].rolling(window).mean()
-        plt.plot(roll, label=f"{label} (avg{window})", linewidth=2)
-
-    plt.title(f"Rolling Average Reward (window={window})")
-    plt.xlabel("Episode")
-    plt.ylabel("Avg Reward")
-    plt.legend()
-    plt.grid(alpha=0.3)
-
-    out_path = os.path.join(save_dir, f"rolling_average_{window}.png")
-    plt.savefig(out_path, dpi=200)
-    plt.close()
-    print(f"Saved: {out_path}")
-
-
-# -------------------------------------------------------------------
-# Combined plotting
+# Combined runner
 # -------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser()
@@ -100,12 +82,11 @@ def main():
     )
     args = parser.parse_args()
 
-    csv_paths = args.files
-    window = args.window
-    outdir = args.outdir
-
-    plot_episode_rewards(csv_paths, save_dir=outdir)
-    plot_rolling_average(csv_paths, window=window, save_dir=outdir)
+    plot_combined(
+        csv_paths=args.files,
+        window=args.window,
+        save_dir=args.outdir
+    )
 
 
 if __name__ == "__main__":

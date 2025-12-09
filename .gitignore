@@ -209,3 +209,5 @@ uv.lock
 pyproject.toml
 Hyperparameter justification for SAC.docx
 *.pth
+*.mp4
+
