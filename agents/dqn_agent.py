@@ -1,12 +1,6 @@
 # agents/dqn_agent.py
 """
 DQNAgent: Implements the standard DQN learning algorithm.
-
-Target computation:
-    Q_target(s, a) = r + γ * max_a' Q_target(s', a')
-
-This uses the same fully-connected DQN network and update rule
-as your original implementation in dqn_doubledqn_carracing.py.
 """
 
 import torch

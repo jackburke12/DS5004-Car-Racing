@@ -5,8 +5,6 @@ DoubleDQNAgent: Implements the Double DQN learning algorithm.
 Key difference from DQN:
     - Online network selects the next action (argmax)
     - Target network evaluates that action
-
-This fixes the overestimation bias in standard DQN.
 """
 
 import torch
@@ -47,9 +45,7 @@ class DoubleDQNAgent(BaseAgent):
             img_w=img_w,
         )
 
-    # -------------------------------------------------------------------------
     # Double DQN update rule
-    # -------------------------------------------------------------------------
     def update(self):
         """Perform one Double DQN update step. Returns loss or None."""
         if len(self.replay) < self.batch_size:
