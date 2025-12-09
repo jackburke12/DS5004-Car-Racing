@@ -1,12 +1,5 @@
 """
 Soft Actor-Critic (SAC) agent for CarRacing-v3 from pixels.
-
-Fixes included:
-    ✓ Correctly uses actor_lr and critic_lr
-    ✓ Proper support for automatic_entropy_tuning = True/False
-    ✓ Alpha is constant when tuning is disabled
-    ✓ Cleaned optimizer setup
-    ✓ No more lr=None issues
 """
 
 import numpy as np
@@ -22,10 +15,7 @@ from models.common_networks import CNNFeatureExtractor
 LOG_STD_MIN = -20.0
 LOG_STD_MAX = 2.0
 
-
-# -----------------------------------------------------------------------------
 # Actor
-# -----------------------------------------------------------------------------
 class SACActor(nn.Module):
     def __init__(self, in_channels=4, img_h=84, img_w=84, action_dim=3):
         super().__init__()
@@ -77,10 +67,7 @@ class SACActor(nn.Module):
 
         return action, log_prob
 
-
-# -----------------------------------------------------------------------------
 # Critic
-# -----------------------------------------------------------------------------
 class SACCritic(nn.Module):
     def __init__(self, in_channels=4, img_h=84, img_w=84, action_dim=3):
         super().__init__()
@@ -101,10 +88,7 @@ class SACCritic(nn.Module):
         x_cat = torch.cat([feat, action], dim=1)
         return self.q_net(x_cat)
 
-
-# -----------------------------------------------------------------------------
 # SAC Agent
-# -----------------------------------------------------------------------------
 class SACAgent:
     def __init__(
         self,
@@ -126,12 +110,6 @@ class SACAgent:
         alpha=0.01,
         automatic_entropy_tuning=False,
     ):
-        """
-        Proper SAC setup:
-        - actor_lr and critic_lr MUST be used separately
-        - alpha is constant when tuning is disabled
-        """
-
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.gamma = gamma
@@ -147,9 +125,7 @@ class SACAgent:
 
         self.tau = tau
 
-        # ----------------------------------
         # Networks
-        # ----------------------------------
         self.actor = SACActor(in_channels, img_h, img_w, self.action_dim).to(self.device)
         self.critic1 = SACCritic(in_channels, img_h, img_w, self.action_dim).to(self.device)
         self.critic2 = SACCritic(in_channels, img_h, img_w, self.action_dim).to(self.device)
@@ -160,25 +136,11 @@ class SACAgent:
         self.critic1_target.load_state_dict(self.critic1.state_dict())
         self.critic2_target.load_state_dict(self.critic2.state_dict())
 
-        # ----------------------------------
-        # Validate and assign LRs
-        # ----------------------------------
-        if actor_lr is None:
-            raise ValueError("actor_lr must be provided for SACAgent")
-
-        if critic_lr is None:
-            raise ValueError("critic_lr must be provided for SACAgent")
-
-        # ----------------------------------
         # Optimizers
-        # ----------------------------------
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic1_opt = torch.optim.Adam(self.critic1.parameters(), lr=critic_lr)
         self.critic2_opt = torch.optim.Adam(self.critic2.parameters(), lr=critic_lr)
 
-        # ----------------------------------
-        # Alpha setup
-        # ----------------------------------
         self.automatic_entropy_tuning = automatic_entropy_tuning
 
         if target_entropy is None:
@@ -197,14 +159,11 @@ class SACAgent:
 
         self.total_steps = 0
 
-    # -----------------------------------------------------------------------------
     def _soft_update(self, online, target):
         for p, tp in zip(online.parameters(), target.parameters()):
             tp.data.copy_(self.tau * p.data + (1 - self.tau) * tp.data)
 
-    # -----------------------------------------------------------------------------
     # Action selection
-    # -----------------------------------------------------------------------------
     def select_action(self, state, eval_mode=False):
         self.actor.eval()
         with torch.no_grad():
@@ -221,7 +180,6 @@ class SACAgent:
         brake = np.clip(brake, 0, 1)
         return np.array([steer, gas, brake], dtype=np.float32)
 
-    # -----------------------------------------------------------------------------
     def store_transition(self, state, action, reward, next_state, done):
         steer, gas, brake = float(action[0]), float(action[1]), float(action[2])
         gas_raw = gas * 2.0 - 1.0
@@ -229,9 +187,7 @@ class SACAgent:
         action_raw = np.array([steer, gas_raw, brake_raw], dtype=np.float32)
         self.replay.push(state, action_raw, reward, next_state, done)
 
-    # -----------------------------------------------------------------------------
     # SAC UPDATE
-    # -----------------------------------------------------------------------------
     def update(self):
         if len(self.replay) < self.batch_size:
             return
@@ -244,9 +200,7 @@ class SACAgent:
         rewards_t = torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1)
         dones_t = torch.tensor(dones.astype(np.uint8), dtype=torch.float32, device=self.device).unsqueeze(1)
 
-        # ------------------------------
         # Target Q
-        # ------------------------------
         with torch.no_grad():
             next_action_raw, next_log_prob = self.actor.sample(next_states_t)
 
@@ -258,9 +212,7 @@ class SACAgent:
             target_q = q_next - alpha * next_log_prob
             target_y = rewards_t + (1 - dones_t) * self.gamma * target_q
 
-        # ------------------------------
         # Critic losses
-        # ------------------------------
         q1 = self.critic1(states_t, actions_t)
         q2 = self.critic2(states_t, actions_t)
 
@@ -276,9 +228,7 @@ class SACAgent:
         self.critic1_opt.step()
         self.critic2_opt.step()
 
-        # ------------------------------
         # Actor loss
-        # ------------------------------
         new_action_raw, log_prob = self.actor.sample(states_t)
         q1_pi = self.critic1(states_t, new_action_raw)
         q2_pi = self.critic2(states_t, new_action_raw)
@@ -292,9 +242,7 @@ class SACAgent:
         nn.utils.clip_grad_norm_(self.actor.parameters(), 10.0)
         self.actor_opt.step()
 
-        # ------------------------------
         # Alpha update (only if tuning)
-        # ------------------------------
         if self.automatic_entropy_tuning:
             alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
             self.alpha_opt.zero_grad()
@@ -314,9 +262,6 @@ class SACAgent:
                 f"alpha={alpha.item():.3f}"
             )
 
-    # -----------------------------------------------------------------------------
-    # Save + Load
-    # -----------------------------------------------------------------------------
     def save(self, path):
         ckpt = {
             "actor": self.actor.state_dict(),

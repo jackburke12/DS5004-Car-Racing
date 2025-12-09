@@ -3,8 +3,6 @@
 DuelingDQNAgent:
     - Uses the DuelingDQN network (value + advantage streams)
     - Uses the Double DQN update rule (online selects action, target evaluates)
-
-This matches your original duelingdqn_carracing.py exactly.
 """
 
 import torch
@@ -45,9 +43,7 @@ class DuelingDQNAgent(BaseAgent):
             img_w=img_w,
         )
 
-    # -------------------------------------------------------------------------
-    # Double DQN update rule (same as DoubleDQNAgent)
-    # -------------------------------------------------------------------------
+    # Double DQN update rule
     def update(self):
         """Perform one Double DQN update step using the DuelingDQN model."""
         if len(self.replay) < self.batch_size:

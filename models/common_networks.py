@@ -1,6 +1,6 @@
 # models/common_networks.py
 """
-Stabilized convolutional feature extractor for TD3 / DDPG from pixels.
+Stabilized convolutional feature extractor for SAC from pixels.
 
 Adds:
     - LayerNorm after each conv layer (BatchNorm breaks actor-critic)

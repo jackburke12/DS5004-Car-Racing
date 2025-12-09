@@ -4,7 +4,7 @@ agent_name: double_dqn
 env:
   id: CarRacing-v3
   render_mode: null
-  num_stack: 4     # Double DQN uses 4 stacked frames
+  num_stack: 4
 
 training:
   episodes: 1500

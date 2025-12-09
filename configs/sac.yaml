@@ -4,13 +4,13 @@ env:
   id: CarRacing-v3
   render_mode: null
   num_stack: 4
-  frame_skip: 4  # NEW: Repeat each action 4 times
+  frame_skip: 4 
 
 training:
   episodes: 1400
-  max_steps_per_episode: 250  # CHANGED: Was 1000, now 250 because 250*4=1000 frames
-  warmup_steps: 2500  # CHANGED: Was 10000, now 2500 because 2500*4=10000 frames
-  train_every: 1  # CHANGED: Can train more frequently now
+  max_steps_per_episode: 250  
+  warmup_steps: 2500  
+  train_every: 1
   updates_per_step: 1
   target_update_every: 1
 
@@ -19,9 +19,9 @@ hyperparameters:
   actor_lr: 0.0003
   critic_lr: 0.0003
   batch_size: 64
-  replay_size: 50000  # Same - still stores 50k transitions
-  alpha: 0.1  # INCREASED: More exploration with faster training
-  automatic_entropy_tuning: false
+  replay_size: 50000 
+  alpha: 0.1
+  automatic_entropy_tuning: true
   tau: 0.005
 
 exploration:

@@ -2,9 +2,6 @@
 """
 Discrete → continuous action mapping for CarRacing-v3.
 
-All agents (DQN, Double DQN, Dueling DQN, etc.) use the same
-5-action discretization.
-
 Each action is a continuous vector:
     [steer, gas, brake]
 

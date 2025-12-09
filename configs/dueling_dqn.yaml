@@ -4,7 +4,7 @@ agent_name: dueling_dqn
 env:
   id: CarRacing-v3
   render_mode: null
-  num_stack: 3      # Dueling Double DQN uses 3 stacked frames
+  num_stack: 3
 
 training:
   episodes: 1500

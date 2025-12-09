@@ -1,6 +1,7 @@
 """
 Frame skip wrapper for gymnasium environments.
-Save as: utils/frame_skip_wrapper.py
+Used by SAC to improve learning on continuous action space.
+
 """
 
 import gymnasium as gym
@@ -10,11 +11,6 @@ import numpy as np
 class FrameSkipWrapper(gym.Wrapper):
     """
     Repeat the agent's action for `skip` frames and accumulate rewards.
-    
-    This is critical for racing games where:
-    - Actions should persist (steering/gas/brake don't change instantly)
-    - Agent needs to see consequence of actions over multiple frames
-    - Training becomes 4x faster with skip=4
     
     Args:
         env: Gymnasium environment

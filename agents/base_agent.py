@@ -92,9 +92,7 @@ class BaseAgent:
         # Optimizer
         self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=self.lr)
 
-    # -------------------------------------------------------------------------
     # Action selection
-    # -------------------------------------------------------------------------
     def select_action(self, state, eval_mode=False):
         """
         Args:
@@ -124,21 +122,15 @@ class BaseAgent:
             qvals = self.online_net(state_t)
         return int(qvals.argmax(dim=1).item())
 
-    # -------------------------------------------------------------------------
-    # Experience replay
-    # -------------------------------------------------------------------------
+    #Experience Replay
     def store_transition(self, state, action, reward, next_state, done):
         self.replay.push(state, action, reward, next_state, done)
 
-    # -------------------------------------------------------------------------
     # Target network update
-    # -------------------------------------------------------------------------
     def hard_update_target(self):
         self.target_net.load_state_dict(self.online_net.state_dict())
 
-    # -------------------------------------------------------------------------
     # Checkpointing
-    # -------------------------------------------------------------------------
     def save(self, path):
         """Save online network parameters."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -149,9 +141,7 @@ class BaseAgent:
         self.online_net.load_state_dict(torch.load(path, map_location=self.device))
         self.hard_update_target()
 
-    # -------------------------------------------------------------------------
     # Subclasses must override update()
-    # -------------------------------------------------------------------------
     def update(self):
         """
         Abstract method.

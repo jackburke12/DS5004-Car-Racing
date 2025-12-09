@@ -10,7 +10,6 @@ Architecture:
     - Combine them as:
         Q(s,a) = V(s) + (A(s,a) - mean(A(s,*)))
 
-This is the network used for your Dueling Double DQN implementation.
 """
 
 import torch
@@ -23,7 +22,7 @@ class DuelingDQN(nn.Module):
         """
         Args:
             num_actions: number of discrete actions (usually 5)
-            in_channels: number of stacked frames (your dueling agent uses 3)
+            in_channels: number of stacked frames
             img_h, img_w: preprocessed frame size
         """
         super().__init__()
